@@ -81,6 +81,9 @@ do
 	logger -t APT-Upgrade -p local7.info "Upgrading package $pkg"
 done <<< "$pkgs"
 
+# Zero out upgradable package counter file
+echo "0" > /tmp/.upgradable_packages_count
+
 # Clean up unused packages
 apt-get autoremove -y
 apt-get clean
