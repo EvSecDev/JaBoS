@@ -7,7 +7,7 @@ then
 fi
 
 # Check presence of required commands
-required_commands=("apt" "apt-get" "logger" "egrep")
+required_commands=("apt" "apt-get" "logger" "grep")
 for cmd in "${required_commands[@]}"; do
 	if ! command -v "$cmd" &>/dev/null; then
             >&2 echo "Command not found: '$cmd'"
@@ -18,9 +18,12 @@ done
 # Environment Variables for Sudo session
 #  Ensure APT is running in a non-interactive manner
 export DEBIAN_FRONTEND=noninteractive
-#  Ensure any apt script that connects to internet goes through network proxy
-export http_proxy=http://apt.aperturecorp.net:3142
-export https_proxy=http://apt.aperturecorp.net:3142
+#  Ensure any apt script uses system wide env vars
+eval "$(cat /etc/environment)"
+#  Ensure proxy vars are available
+export no_proxy
+export http_proxy
+export https_proxy
 
 # Update the package list
 aptErr=$(apt-get update -y 2>&1 > /dev/null)
@@ -39,7 +42,7 @@ then
 fi
 
 # Exit normally if nothing to upgrade
-upgradable=$(echo "$pkgs" | egrep -v "Listing")
+upgradable=$(echo "$pkgs" | grep -E -v "Listing")
 if [[ -z $upgradable ]]
 then
 	echo "All packages already upgraded"

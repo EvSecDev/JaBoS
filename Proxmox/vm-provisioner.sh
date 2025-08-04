@@ -29,7 +29,7 @@ Options:
 }
 
 # Use getopt to parse long and short options
-PARSEDARGS=$(getopt -o "hc:u:i:k" -l "help,vm-config:,url:,install-iso:,insecure" -- "$@")
+PARSEDARGS=$(getopt -o "hc:u:k" -l "help,vm-config:,url:,insecure" -- "$@")
 if [[ $? != 0 ]]
 then
     exit 1
