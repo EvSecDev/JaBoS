@@ -6,3 +6,5 @@ JaBoS is a collection of scripts that automate many tasks.
 
 Many of these scripts have parts that are specific to my network.
 If you are going to use them, review them for sections that do not apply to your network and remove them.
+
+This repo also includes many scripts that are still work-in-progress or unfinished. They are denoted by file name prefix `wip_`
