@@ -111,7 +111,7 @@ then
 elif ! [[ -t 0 ]] && [[ -z $JSONConf ]]
 then
     # Read from STDIN
-    VMConfig=$(jq -c . <<<"$(cat)")
+    VMConfig=$(jq -c '.' <<<"$(cat)")
     jqExitCode=$?
 else
     >&2 echo "VM Config must be provided via file, argument, or stdin"
@@ -156,23 +156,22 @@ then
 	exit 1
 fi
 
-# Retrieve VM configuration
-VMConfig=$(jq -c . "$JSONConfPath")
-if [[ $? != 0 ]] || [[ -z $VMConfig ]]
-then
-	>&2 echo "Invalid JSON syntax in local config file \"$VMConfig\""
-	exit 1
-fi
-
 VMID=$(jq -r .vmid <<<"$VMConfig")
 
 echo "[*] Checking Proxmox Node Status..."
 
-# Get initial API info
 BaseURL="$PVEAPIURL/api2/json"
+
+# Get initial API info
 NodeOverview=$(acurl "$BaseURL/nodes")
-if [[ $? != 0 ]]
+curlExitCode=$?
+if [[ $curlExitCode != 0 ]] || [[ -z $NodeOverview ]]
 then
+    if [[ $curlExitCode == 60 ]]
+    then
+        echo "Curl failed at SSL certificafte verification, maybe you need to use -k"
+    fi
+    >&2 echo "Failed curl command to Proxmox status API"
 	exit 1
 fi
 
@@ -187,7 +186,7 @@ then
 	exit 1
 fi
 
-echo "[*] Requesting VM creation with config file \"$JSONConfPath\""
+echo "[*] Requesting VM $VMID creation"
 
 # Create VM
 CreateVMPost=$(acurl \
