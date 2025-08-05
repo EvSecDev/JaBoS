@@ -21,15 +21,38 @@ This script requires authentication using environment variables
   export PVEAPIToken='deabbeef-deadbeef-deadbeef'
 
 Options:
-  -c, --vm-config <path/to/conf.json>  File path to VM JSON configuration
+  -c, --vm-config <conf.json|{json}>   File path to VM JSON configuration or raw JSON
+                                       Optionally provide via stdin
   -u, --url <https://mgmtaddr>         URL to Proxmox Management
                                        Optionally specify via environment variable 'PVEURL'
   -k, --insecure                       Trust any remote HTTPs certificate
+      --show-example-config            Show JSON config template
 "
 }
 
+configExample='{
+  "vmid": 123,
+  "start": 1,
+  "cpu": "host",
+  "name": "TESTVMUEFI",
+  "numa": 0,
+  "scsihw": "virtio-scsi-pci",
+  "efidisk0": "VMStorage:1,efitype=4m,pre-enrolled-keys=1",
+  "scsi0": "VMStorage:20,ssd=1",
+  "ide0": "local:iso/installos.iso,media=cdrom",
+  "agent": "1",
+  "cores": 1,
+  "sockets": 1,
+  "memory": "2048",
+  "ostype": "l26",
+  "bios": "ovmf",
+  "boot": "order=scsi0;ide0",
+  "onboot": 1,
+  "net0": "virtio=00:50:56:12:34:56,bridge=vmbr0,firewall=0,tag=111"
+}'
+
 # Use getopt to parse long and short options
-PARSEDARGS=$(getopt -o "hc:u:k" -l "help,vm-config:,url:,insecure" -- "$@")
+PARSEDARGS=$(getopt -o "hc:u:k" -l "help,vm-config:,url:,insecure,show-example-config" -- "$@")
 if [[ $? != 0 ]]
 then
     exit 1
@@ -40,7 +63,7 @@ eval set -- "$PARSEDARGS"
 while true; do
     case "$1" in
         -c|--vm-config)
-            JSONConfPath="$2"
+            JSONConf="$2"
             shift 2
             ;;
         -u|--url)
@@ -50,6 +73,10 @@ while true; do
         -k|--insecure)
             BaseCurlCommand+=" --insecure"
             shift
+            ;;
+        --show-example-config)
+            echo "$configExample"
+            exit 0
             ;;
         -h|--help)
             usage
@@ -70,6 +97,33 @@ done
 alias acurl="$BaseCurlCommand --silent -H \"Authorization: PVEAPIToken=$PVEAPIUser=$PVEAPIToken\" "
 shopt -s expand_aliases
 
+# Evaluate where VM config was provided
+if [[ -f $JSONConf ]]
+then
+    # Read from file
+    VMConfig=$(jq -c . "$JSONConf")
+    jqExitCode=$?
+elif [[ -n $JSONConf ]] && ! [[ -f $JSONConf ]]
+then
+    # Read from arg value
+    VMConfig=$(jq -c . <<<"$JSONConf")
+    jqExitCode=$?
+elif ! [[ -t 0 ]] && [[ -z $JSONConf ]]
+then
+    # Read from STDIN
+    VMConfig=$(jq -c . <<<"$(cat)")
+    jqExitCode=$?
+else
+    >&2 echo "VM Config must be provided via file, argument, or stdin"
+    exit 1
+fi
+
+if [[ $jqExitCode != 0 ]] || [[ -z $VMConfig ]]
+then
+    >&2 echo "Invalid JSON syntax in local config"
+    exit 1
+fi
+
 # Ensure API variables are present
 if [[ -z $PVEAPIURL ]]
 then
@@ -88,8 +142,8 @@ then
 fi
 if [[ -z $PVEAPIToken ]]
 then
-        >&2 echo "Could not find the API token environment variable"
-        exit 1
+    >&2 echo "Could not find the API token environment variable"
+    exit 1
 fi
 
 # Ensure supplied URL does not contain trailing slash
@@ -100,13 +154,6 @@ if ! [[ $PVEAPIURL =~ ^https ]]
 then
 	>&2 echo "API URL must use secure transport (HTTPs)"
 	exit 1
-fi
-
-# Validate input config
-if ! [[ -f $JSONConfPath ]]
-then
-    >&2 echo "No config file found at path \"$JSONConfPath\""
-    exit 1
 fi
 
 # Retrieve VM configuration
