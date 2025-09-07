@@ -135,7 +135,6 @@ done
 # Only continue to update if current prefix has changed
 if [[ $currentDomainAAAArecord == $newDomainAAAArecord ]]
 then
-	logMsg "Record $RecordToUpdate value ($currentDomainAAAArecord) matches current public IPv6 record value ($newDomainAAAArecord), not updating" "1"
 	exit 0
 fi
 
