@@ -79,6 +79,13 @@ Good Info: <https://www.thomas-krenn.com/en/wiki/IPMI_Basics>
 
 `ssh -LLISTENPORTLOCAL:IP-TOCONNECTTO:PORTTCONNECTTO -N user@IPADDR`
 
+## Systemd
+
+Test journald remote sending (message validity):
+```bash
+printf "__REALTIME_TIMESTAMP=1767764495502451\n_BOOT_ID=136b27c0-0bae-47f2-b88c-2ef35d5778aa\nPRIORITY=5\nMESSAGE=test\nOBJECT_PID=2422\n\n" | SYSTEMD_LOG_LEVEL=debug /lib/systemd/systemd-journal-remote --output /tmp/test.journal -
+```
+
 ## Shortcuts and Misc
 
 Native CPU Stress Testing:
