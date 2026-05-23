@@ -87,7 +87,8 @@ function moduleinfo() {
   version="\"Version\":\"$(cat "$kernelModuleDir/$modulename/version" 2>/dev/null)\""
   coresize="\"CoreSize\":\"$(cat "$kernelModuleDir/$modulename/coresize" 2>/dev/null)\""
   miscinfo=$(modinfo "$modulename" | \
-  grep -Ev "^alias|^srcversion|^version|^depends|^name" \
+  grep -Ev "^alias|^srcversion|^version|^depends|^name|^softdep" \
+  | sed 's/,/ /g' \
   | awk '/parm:/ {exit} {print}' \
   | sed -rz "s/(:[0-9A-F]{2}:)\n/\1/g" \
   | sed -r 's/([0-9A-F]{2}:)\s+([0-9A-F]{2})/\1\2/g' \
