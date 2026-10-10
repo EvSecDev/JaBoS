@@ -50,6 +50,7 @@ fi
 suffixToUpdate=$1 # like 2003:999[9:1111:2222:3333:4444]
 RecordToUpdate=$2 # like web.domain.com
 TTL=$3            # like 60/180/3600
+targetZone=$4     # like domain.com (no end dot)
 
 if [[ -z $suffixToUpdate ]]
 then
@@ -143,7 +144,7 @@ logMsg "Record $RecordToUpdate value ($currentDomainAAAArecord) does NOT match c
 # Update AAAA record
 nsupdate -k $keyFile <<EOF
 server $NS1
-zone $RecordToUpdate.
+zone $targetZone.
 update delete $RecordToUpdate. AAAA
 update add $RecordToUpdate. $TTL AAAA $newDomainAAAArecord
 send
