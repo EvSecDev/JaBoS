@@ -214,7 +214,7 @@ if [[ -n $localISOFile ]]; then
 		exit 1
 	fi
 
-	echo "[*] Uploading local installation image $localISOFile to store $storageName under name $tgtISOName"
+	echo "[*] Uploading local installation image '$localISOFile' to store '$storageName' under name '$tgtISOName'"
 
 	# Copy to target file name since curl needs both local and remote to be the same file name (for the config to also work)
 	cp "$localISOFile" ./"$tgtISOName"
@@ -408,5 +408,59 @@ if [[ -n $localISOFile ]]; then
 fi
 
 echo "[+] VM $VMID created and is currently in status $newVMStatus"
+
+shouldStart=$(jq -r '.start // 0' <<<"$VMConfig")
+if [[ $shouldStart -eq 1 ]]; then
+	echo "[*] Waiting for VM $VMID to reach running status..."
+
+	maxTotalWait=1800
+	pollInterval=5
+	elapsedWait=0
+	vmRunning=false
+	while ((elapsedWait < maxTotalWait)); do
+		vmStatusGet=$(acurl -s "$BaseURL/nodes/$PVENodeName/qemu/$VMID/status/current" 2>&1)
+		curlExitCode=$?
+		if [[ $curlExitCode == 0 ]]; then
+			currentStatus=$(jq -r '.data.status // empty' <<<"$vmStatusGet")
+			if [[ $currentStatus == "running" ]]; then
+				vmRunning=true
+				break
+			fi
+		fi
+		sleep $pollInterval
+		elapsedWait=$((elapsedWait + pollInterval))
+	done
+
+	if [[ $vmRunning != true ]]; then
+		echo "[-] VM $VMID did not reach running status within $maxTotalWait seconds" >&2
+		exit 1
+	fi
+
+	echo "[+] VM $VMID is running, waiting for OS installation to complete..."
+
+	waitStart=$(date +%s)
+	elapsedWait=0
+	installDone=false
+	while ((elapsedWait < maxTotalWait)); do
+		agentPing=$(acurl -s -o /dev/null -w "%{http_code}" -x POST "$BaseURL/nodes/$PVENodeName/qemu/$VMID/agent/ping" 2>&1)
+		curlExitCode=$?
+		if [[ $curlExitCode == 0 ]] && [[ $agentPing == "200" ]]; then
+			installDone=true
+			break
+		fi
+		sleep $pollInterval
+		elapsedWait=$((elapsedWait + pollInterval))
+	done
+
+	if [[ $installDone != true ]]; then
+		echo "[-] VM $VMID guest agent did not respond within $maxTotalWait seconds" >&2
+		exit 1
+	fi
+
+	installDuration=$(($(date +%s) - waitStart))
+	echo "[+] VM $VMID installation complete, guest agent responding after ${installDuration}s"
+else
+	echo "[*] VM start was not requested (start=0 in config), skipping install wait"
+fi
 
 exit 0
