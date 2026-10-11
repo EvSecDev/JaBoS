@@ -442,14 +442,17 @@ if [[ $shouldStart -eq 1 ]]; then
 	elapsedWait=0
 	installDone=false
 	while ((elapsedWait < maxTotalWait)); do
-		agentPing=$(acurl -s -o /dev/null -w "%{http_code}" -x POST "$BaseURL/nodes/$PVENodeName/qemu/$VMID/agent/ping" 2>&1)
-		curlExitCode=$?
-		if [[ $curlExitCode == 0 ]] && [[ $agentPing == "200" ]]; then
+		agentPing=$(acurl -s -o /dev/null -w "%{http_code}" -X POST "$BaseURL/nodes/$PVENodeName/qemu/$VMID/agent/ping" 2>&1)
+		# Not checking exit code, current bug in curl trying to truncate the output file (Failing for dev null, gh #17371)
+		if [[ $agentPing == "200" ]]; then
 			installDone=true
 			break
 		fi
 		sleep $pollInterval
 		elapsedWait=$((elapsedWait + pollInterval))
+		if ((elapsedWait > 0 && elapsedWait % 60 == 0)); then
+			echo "[*] VM $VMID still waiting for guest agent (${elapsedWait}s elapsed. HTTP status: $agentPing)"
+		fi
 	done
 
 	if [[ $installDone != true ]]; then
