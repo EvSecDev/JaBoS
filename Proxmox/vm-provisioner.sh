@@ -96,6 +96,7 @@ while true; do
 			;;
 	esac
 done
+scriptStart=$(date +%s)
 
 # shellcheck disable=SC2139
 alias acurl="$BaseCurlCommand --no-progress-meter -H \"Authorization: PVEAPIToken=$PVEAPIUser=$PVEAPIToken\" "
@@ -409,14 +410,38 @@ fi
 
 echo "[+] VM $VMID created and is currently in status $newVMStatus"
 
-shouldStart=$(jq -r '.start // 0' <<<"$VMConfig")
-if [[ $shouldStart -eq 1 ]]; then
+cleanISOMount() {
+	vmConfigGet=$(acurl -s "$BaseURL/nodes/$PVENodeName/qemu/$VMID/config" 2>&1)
+	if [[ $? != 0 ]]; then
+		echo "[-] Failed to query VM $VMID config for iso mount (non-fatal)" >&2
+		return 1
+	fi
+
+	cdromDevice=$(jq -r --arg prefix "$storageName:$remoteISOPath" \
+		'.data | to_entries[] | select(.value | type == "string" and startswith($prefix)) | .key' <<<"$vmConfigGet")
+	if [[ -z $cdromDevice ]]; then
+		echo "[-] Could not find device matching '$storageName:$remoteISOPath' in VM $VMID config" >&2
+		return 1
+	fi
+
+	echo "[*] Queueing removal of '$cdromDevice' ($storageName:$remoteISOPath) from VM $VMID..."
+	cdromRemove=$(acurl -s -o /dev/null -w "%{http_code}" \
+		-X POST \
+		"$BaseURL/nodes/$PVENodeName/qemu/$VMID/config" -d "delete=$cdromDevice" 2>&1)
+	if [[ $cdromRemove != "200" ]]; then
+		echo "[-] Failed to remove $cdromDevice from VM $VMID (HTTP status: $cdromRemove)" >&2
+		return 1
+	fi
+	echo "[+] VM $VMID: Device $cdromDevice will be removed on next VM cold boot"
+}
+
+waitForVMInstallation() {
 	echo "[*] Waiting for VM $VMID to reach running status..."
 
-	maxTotalWait=1800
-	pollInterval=5
-	elapsedWait=0
-	vmRunning=false
+	local maxTotalWait=1800
+	local pollInterval=5
+	local elapsedWait=0
+	local vmRunning=false
 	while ((elapsedWait < maxTotalWait)); do
 		vmStatusGet=$(acurl -s "$BaseURL/nodes/$PVENodeName/qemu/$VMID/status/current" 2>&1)
 		curlExitCode=$?
@@ -435,12 +460,16 @@ if [[ $shouldStart -eq 1 ]]; then
 		echo "[-] VM $VMID did not reach running status within $maxTotalWait seconds" >&2
 		exit 1
 	fi
+	echo "[+] VM $VMID is running"
 
-	echo "[+] VM $VMID is running, waiting for OS installation to complete..."
+	cleanISOMount
 
+	echo "[+] VM $VMID: Waiting for OS installation to complete..."
+
+	local waitStart
 	waitStart=$(date +%s)
 	elapsedWait=0
-	installDone=false
+	local installDone=false
 	while ((elapsedWait < maxTotalWait)); do
 		agentPing=$(acurl -s -o /dev/null -w "%{http_code}" -X POST "$BaseURL/nodes/$PVENodeName/qemu/$VMID/agent/ping" 2>&1)
 		# Not checking exit code, current bug in curl trying to truncate the output file (Failing for dev null, gh #17371)
@@ -462,8 +491,45 @@ if [[ $shouldStart -eq 1 ]]; then
 
 	installDuration=$(($(date +%s) - waitStart))
 	echo "[+] VM $VMID installation complete, guest agent responding after ${installDuration}s"
+}
+
+cleanupISOStore() {
+	echo "[*] Removing installation image '$tgtISOName' from store '$storageName'"
+
+	ImageDelete=$(acurl \
+		-w '{"markerForCurlHTTPStatusCode":"%{http_code}"}' \
+		-X DELETE \
+		"$BaseURL/nodes/$PVENodeName/storage/$storageName/content/$storageName%3Aiso%2F$tgtISOName" 2>&1)
+	curlExitCode=$?
+	if [[ $curlExitCode != 0 ]]; then
+		echo "Curl command failed. Exit status $curlExitCode: $ImageDelete" >&2
+		exit 0
+	fi
+
+	HTTPResponseCode=$(jq -r ".markerForCurlHTTPStatusCode" <<<"$ImageDelete" | tail -n1)
+	if [[ -n $HTTPResponseCode ]] && [[ $HTTPResponseCode != 200 ]]; then
+		pveErrorMessage=$(jq -r '.message | select(.)' <<<"$ImageDelete")
+		pveErrorDetails=$(jq -c -r '.errors | select(.)' <<<"$ImageDelete")
+
+		echo "Install image delete call failed with HTTP Code $HTTPResponseCode and error: $pveErrorMessage $pveErrorDetails" >&2
+		exit 0
+	fi
+
+	echo "[+] Successfully removed installation image '$tgtISOName' from store '$storageName'"
+}
+
+shouldStart=$(jq -r '.start // 0' <<<"$VMConfig")
+if [[ $shouldStart -eq 1 ]]; then
+	waitForVMInstallation
 else
 	echo "[*] VM start was not requested (start=0 in config), skipping install wait"
 fi
 
+# When the ISO was uploaded, also clean it up on success
+if [[ -n $localISOFile ]]; then
+	cleanupISOStore
+fi
+
+totalDuration=$(($(date +%s) - scriptStart))
+echo "[+] Done. Elapsed time: ${totalDuration}s"
 exit 0
